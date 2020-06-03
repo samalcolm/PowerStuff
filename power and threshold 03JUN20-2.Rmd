@@ -1,0 +1,402 @@
+---
+title: "Number of samples and statistical power"
+output:
+  html_document:
+    df_print: paged
+    css: style.css
+#  pdf_document: default
+---
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(ggplot2)
+library(dplyr)
+knitr::opts_chunk$set(fig.width=4.8, fig.height=3,
+                      echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+
+We wish to determine whether or not a treatment has a detrimental effect on a process that produces regular outcomes. The outcomes are measurable, but unobservable without costly tests. To observe the outcome, we sample and analyze the output of the process. The tests take time, cost money, deflect resources and are partially disruptive to the smooth operation of the process. Our question is "what is the minimum number of samples needed to collect and analyze that enables identification of any detrimental effect, if the effect exists?" Any conclusion drawn must be have a certain degree of confidence.
+
+A related question is: "Given a number of samples, what are the limits to the conclusions that can be made from an experimental outcome?"
+
+We take $N$ samples from each of two populations. Each sample will be analyzed to determine if it is positive or negative for some measure of performance. For this example, the performance measure is the mean number of positives samples. Given the measured values and number of samples for each population, how certain can we be that the two populations are "not different"?  
+
+Our experiment is a $N$-length sequence of $1$'s and $0$'s. The outcome of the experiment can be characterized as a line with a midpoint that is the mean value of all samples taken, and endpoints chosen such that all the possible mean values of the experiment have a 95% chance of falling on the line.
+
+The figure below shows the possible experiment outcomes.
+
+```{r echo=FALSE}
+# Outcome cases, general
+ex.df = data.frame(case=c("A","B","C "),labels=c("Reject","Do not reject","Reject"),
+                   low=c(-10,-4,2),
+                   high=c(-1,5,8))
+
+ggplot(ex.df) + 
+  geom_text(aes(x=low,y=case,label=case), nudge_x=1, nudge_y=0.5) +
+  geom_segment(aes(x=low,xend=high,y=case,yend=case),
+               arrow=arrow(angle = 90, length = unit(0.1, "inches"),
+                           ends = "both", type = "open")) +
+  geom_point(aes(x=(high+low)/2,y=case)) +
+  geom_segment(aes(x=0,xend=0,y=0,yend=4), linetype="dotted") +
+  ggtitle("Possible outcomes of an experiment") +
+  ylab("") +
+  xlab("Difference in prevalence: Treatment - Control") +
+  scale_x_continuous(breaks=c(0),labels=c("0")) +
+  theme_classic() +
+  theme(axis.text.y = element_blank(), axis.ticks.y=element_blank())
+```
+
+
+If there is **no difference** between systems, then we want the outcome of our experiment to look like "B"; we will correctly not reject the null hypothesis. If the other outcomes obtain, then will will wrongly reject the null hypothesis.
+
+On the other hand, if there is a **positive difference**, then we want the outcome to look like "C"", and we don't want outcomes that look like the others. But, there is a chance that
+
+1. Outcome "C" could have come from a system with no difference. 
+2. Outcome "B" (and even "A") could have come from a system where there truly is a difference. 
+
+**Power** is about designing a study to reduce the likelihood of those "wrong" outcomes from happening. 
+
+
+
+### A simulation example
+If we could repeat the experiment a large number of times, we would get a different outcome for each realization of the experiment. 
+In reality we only get to observe **one** outcome, which is in effect a random sample from the universe of possible outcomes.
+The figure below shows a small subset of the outcomes from 10000 runs of the experiment.
+
+:::: {.blackbox data-latex=""}
+::: {.left data-latex=""}
+The simulation assumes:
+
+1. Base prevalence of 0.5 positives per 48 samples (1.04%)
+2. 336 samples per system (7 plants per system, 48 samples per plant)
+:::
+::::
+
+
+```{r echo=FALSE, cache=TRUE}
+
+ExOutcomes = function(diff, p0, thr, nplants, samples_per_plant, Nsim=1e5, alpha=0.05, beta=0.2, sf=48){
+  total_samples = nplants*samples_per_plant
+  Ns = nplants*samples_per_plant
+  sim = sapply(1:Nsim, function(x) {
+     d = rbinom(Ns,1,p0+diff) - rbinom(Ns,1,p0)
+     c(mean(d)-qnorm(1-alpha/2)*sd(d)/sqrt(Ns), 
+    mean(d)+qnorm(1-alpha/2)*sd(d)/sqrt(Ns),
+    mean(d))
+  })
+ 
+  dfp = data.frame(lower=sim[1,], upper=sim[2,], mean=sim[3,]) %>% 
+#    arrange(low, -mean) %>%
+    arrange(mean) %>%
+    mutate(run=row_number()/Nsim)
+  
+  dfp$case = "All zero"
+  dfp$case[dfp$upper < 0] = "A"
+  dfp$case[dfp$upper > 0   & dfp$upper < thr & dfp$lower < 0] = "B"
+  dfp$case[dfp$upper > thr & dfp$lower < 0] = "C"
+  dfp$case[dfp$upper < thr & dfp$lower > 0] = "D"
+  dfp$case[dfp$upper > thr & dfp$lower < thr & dfp$lower > 0] = "E"
+  dfp$case[dfp$lower > thr] = "F"
+  dfp$case = ordered(dfp$case,c("All zero","A","B","C","D","E","F"))
+  
+  dfp$case0 = "All zero"
+  dfp$case0[dfp$upper < 0] = "Reject"
+  dfp$case0[dfp$upper > 0 & dfp$lower < 0] = "Do not reject"
+  dfp$case0[dfp$lower > 0] = "Reject"
+
+  cases = dfp %>% 
+    group_by(case) %>% 
+    summarize(t=n()/Nsim) %>% 
+    as.data.frame()
+
+  cases0 = dfp %>% 
+    group_by(case0) %>% 
+    summarize(t=n()/Nsim) %>% 
+    as.data.frame()
+  
+  pbar = uniroot(function(pbar) 
+   2*pbar - 2*p0 -(qnorm(1-alpha/2)+qnorm(1-beta))*sqrt(1/total_samples)*sqrt(pbar*(1-pbar)),  c(0,1))$root
+  
+  c95 = sqrt(2*p0*(1-p0))/sqrt(total_samples)*qnorm(1-alpha/2)
+  dat = data.frame(x=seq(1/total_samples,1,length.out=total_samples),y=seq(0,total_samples-1))
+  c95pos = approx(dat$x, dat$y, xout=c95)$y%%1
+  
+  mdd = (c95+sqrt(pbar*(1-pbar))*sqrt(2/total_samples)*qnorm(1-beta))*sf
+  
+  meas0 = sum(dfp$lower >= 0)/Nsim
+  meas1 = sum(dfp$mean >= c95)/Nsim
+  power = power.prop.test(n=total_samples, p1=p0, p2=p0+diff)$power
+  p.p.test = power.prop.test(n=total_samples, p1=p0, power=0.8)
+#  mdd = (p.p.test$p2 - p.p.test$p1)*sf
+  colors = c("green","blue","red")
+  
+  select_rows = seq(from=1, to=Nsim, length.out=50)
+  dfp1 = dfp[select_rows,]
+  p = ggplot(dfp1) + 
+    geom_point(aes(mean*sf, run), color="red")  +
+    geom_segment(aes(x=lower*sf,xend=upper*sf,y=run,yend=run, color=case), alpha=0.5)  +
+    geom_segment(aes(x=0,xend=0,y=0,yend=1), linetype="dashed", color="black", size=1) +
+    ylab("Quantile") + xlab("Positive samples per establishment") +
+    theme_classic()
+
+  p2 = ggplot(dfp1) + 
+    geom_point(aes(mean*sf, run), color="black") +
+    geom_segment(aes(x=lower*sf,xend=upper*sf,y=run,yend=run, color=case0), alpha=0.5)  +
+    scale_color_manual(
+      values=c("Reject"="red","Do not reject"="blue")) +
+    geom_segment(aes(x=0,xend=0,y=0,yend=1), linetype="dashed", color="black", size=1) +
+      ggtitle("Subset of simulated Experiment outcomes") +
+    ylab("Quantile") + xlab("Positive samples per establishment") +
+    theme_classic() +
+      labs(color = "Outcomes")
+  
+    inputs = c(p0=p0,diff=diff, thr=thr, nplants=nplants, samples_per_plant=samples_per_plant, Nsim=Nsim, alpha=alpha, beta=beta, sf=sf)
+    
+    output = list(cases = cases, 
+                  cases0 = cases0,
+                  mdd=mdd, 
+                  power.calc = power, 
+                  power.meas0 = meas0, 
+                  power.meas1 = meas1,
+                  plot = p, 
+                  p2 = p2,
+                  dfp = dfp,
+                  c95 = c95,
+                  c95pos = c95pos,
+                  inputs = inputs)
+}
+```
+
+```{r echo=FALSE}
+# simulation parameters
+p0 = 0.5/48
+th = 1.5/48
+np = 7
+ns = 48
+NN = 1e4
+diff = 0
+```
+
+```{r echo=FALSE}
+e = ExOutcomes(diff,p0,th,np,ns,Nsim=NN)
+e$p2
+#e$cases
+e$cases0
+nodiff = e$cases0[e$cases0$case0=="Do not reject","t"]
+reject = e$cases0[e$cases0$case0=="Reject","t"]
+```
+
+When there is *no difference* between systems, we obtain an outcome that crosses zero `r 100*nodiff` percent of the times we run the experiment, in line with the meaning of a 95% confidence interval.
+
+Note that we would wrongly infer that the treatment group was different `r paste0(100*reject,"%")`  of the time.
+
+What happens to the range of possible outcomes if there truly *is* a difference?
+
+```{r echo=FALSE}
+diff = 1/48
+NN = 1e4
+e1 = ExOutcomes(diff,p0,th,np,ns,Nsim=NN)
+e1$p2 +    scale_color_manual(
+      values=c("Reject"="blue","Do not reject"="red"))
+
+#e1$cases
+e1$cases0
+nodiff = sum(e1$cases0[e1$cases0$case == c("Do not reject"),"t"] )
+
+```
+
+The experimental outcomes are drawn from a system where the treatment group prevalence is 1.5 positive samples per plant per year, for an expected difference of 1 positive per plant.
+
+We obtain an outcome that crosses zero `r paste0(100*nodiff,"%")` percent of the time. If this is our decision criteria, **there is a greater than 50% chance that we will wrongly infer that there is no difference between systems when in fact there is a difference.**
+
+*How does this diagram relate to statistical power?* 
+
+Power is the probability of detecting a difference if there is a difference to detect. In our example, we will correctly reject the null hypothesis `r paste0(100-100*nodiff,"%")` percent of the time. This value is the power of the study.
+
+In other words, the power of a study with 336 samples to detect a difference of 1 positive sample per plant per year is `r paste0(100-100*nodiff,"%")`.
+
+Power is the probability that outcomes that do not overlap zero truly represent a difference between systems. Or, power is the one minus the probability that an outcome from an alternative distribution is wrongly identified as from the control distribution.
+
+Fortunately, we don't have to resort to simulation to calculate the power of a study.
+
+Let's look at the problem another way. By looking at the distributions of means of the two possible outcomes (a <span style="color: blue;">mean difference of zero</span>, and a <span style="color: red;">mean difference of 1 positive sample per plant</span>).
+
+We can see that 
+
+```{r echo=FALSE}
+
+Npoints = 1e6
+Nsamples = 336
+x <- seq(-6/48, 6/48, length.out=Npoints)
+mean1 <- 0
+sd1=sqrt(2*p0*(1-p0))*sqrt(2/Nsamples)
+za = qnorm(0.975)*sd1*48
+
+alpha = 0.05
+beta = 0.5298
+
+pbar = uniroot(function(pbar) 
+   2*pbar - 2*p0 -(qnorm(1-alpha/2)+qnorm(1-beta))*sqrt(2/Nsamples)*sqrt(pbar*(1-pbar)),  c(0,1))$root
+
+sd2 = sqrt(pbar*(1-pbar))*sqrt(2/Nsamples)
+zb = qnorm(1-beta)*sd2*48
+mdd = za + zb
+
+dat <- data.frame(x = x, y1 = dnorm(x, mean1, sd1), y2 = dnorm(x, mdd/48, sd2))
+# 
+
+dat$cdf1=cumsum(dat$y1)
+dat$cdf1=dat$cdf1/max(dat$cdf1)
+dat$cdf2=cumsum(dat$y2)
+dat$cdf2=dat$cdf2/max(dat$cdf2)
+
+select_rows = seq(from=1, to=Npoints, length.out=1000)
+dat1 = dat[select_rows,]
+
+ym=max(dat1$y1,dat1$y2)
+plt = ggplot(dat1, aes(x = x*48)) +
+  geom_line(aes(y = y1, colour = 'Null is true'), size = 1.2) +
+  geom_line(aes(y = y2, colour = 'Alt is true'), size = 1.2) +
+  xlab("") + ylab("") + theme(legend.title = element_blank()) +
+  scale_colour_manual(breaks = c("Null is true", "Alt is true"), values = c("blue", "red")) +
+  xlim(-2,4) +
+  labs(color="") +
+    theme_classic()
+
+# interpolated power value
+vol <- lapply(data.frame(cdf1=0.975), function(l) approx(dat$cdf1, dat$x, xout=l))
+vol <- vol$cdf1$y*48
+vol2 <- lapply(data.frame(x=vol/48), function(l) approx(dat$x, dat$cdf2, xout=l))
+power=1-vol2$x$y
+plt
+
+```
+
+If we mark the value where 95% of the no difference outcomes are expected to fall below, it is easy to see that a majority of outcomes where there is a 1 sample difference also fall to the left of the line and would wrongly lead to non-rejection of the null hypothesis if there truly was a difference.
+
+```{r echo=FALSE}
+plt2 = plt +
+  geom_segment(aes(x=za, xend=za, y=0, yend=ym), linetype="dotted")
+
+#  geom_area(aes(y = y1, x = ifelse(x > qnorm(0.975)*sd1, x*48, NA)), fill = 'black') +
+#  geom_area(aes(y = y2, x = ifelse(x > qnorm(0.975)*sd1, x*48, NA)), fill = 'blue', alpha = 0.3)
+#  xlab("") + ylab("") + theme(legend.title = element_blank())
+#  geom_segment(aes(x=0,xend=za,y=2.5,yend=2.5), arrow=arrow(angle = 45, length = unit(0.1, "inches"),
+#                           ends = "last", type = "open")) +
+#  geom_segment(aes(x=za,xend=mdd,y=20,yend=20), arrow=arrow(angle = 45, length = unit(0.1, "inches"),
+#                           ends = "last", type = "open")) +
+#  geom_segment(aes(x=za,xend=za+zb,y=12,yend=12), arrow=arrow(angle = 45, length = unit(0.1, "inches"),
+#                           ends = "last", type = "open")) +
+
+plt2
+```
+
+The area under the red distribution to the right of the dotted line is the power of the study.
+
+
+Making a claim that "no difference" is strictly a difference equal to zero is a tough order to fill. If one compares samples from two groups randomly chosen from traditional establishments with similar characteristics, it reasonable to assume, and indeed likely, that the observed difference will not be precisely zero even though the systems are, by definition, equivalent. The range of outcomes (mean values) of that experiment is the blue distribution above. 
+
+Here's our single experimental outcome again:
+
+```{r echo=FALSE}
+#ggplot(ex.df[ex.df$case %in% c("No Difference"),]) + 
+ggplot(data.frame(lower=-1,upper=5)) +
+  geom_segment(aes(x=lower,xend=upper,y=1,yend=1),
+               arrow=arrow(angle = 90, length = unit(0.1, "inches"),
+                           ends = "both", type = "open")) +
+  geom_point(aes(x=(upper+lower)/2,y=1)) +
+  geom_segment(aes(x=0,xend=0,y=0,yend=1.5), linetype="dotted") +
+  geom_segment(aes(x=4,xend=4,y=0,yend=1.5), linetype="dotted") +
+  ggtitle("Experimental outcome 95% confidence band") +
+  ylim(0,2) +
+  ylab("") + 
+  xlab("Difference in prevalence: Treatment - Control") +
+  scale_x_continuous(breaks=c(0,4),labels=c("0","T")) +
+  theme_classic() +
+  theme(axis.text.y = element_blank(), axis.ticks.y=element_blank())
+```
+
+Because the confidence band also overlaps $T$, we cannot reject the hypothesis that the difference is $T$. If $T$ is a value that represents some predefined threshold between a "good" and "bad" assessment, then this experiment result would not be reliable for making an inference about this outcome. *0 and T are statistically indistinguishable*.
+
+Assuming $T$ is a value that we consider a *small enough* value to be the same as "no difference," the example above would represent an experimental outcome that rejects the hypothesis of no difference, because it overlaps $T$. That is, there are values above $T$ that are inside the confidence band.
+
+The existence of the threshold $T$ gives a few more experimental outcome cases to consider. The next figure shows the expanded possible outcomes. (The widths of the confidence intervals are just examples; they will vary within each category.)
+
+
+```{r echo=FALSE}
+ex.df = data.frame( case=c("A","B","C","D","E","F") ,                 labels=c("Non-Inferior","Non-Inferior*","Inferior**","Non-Inferior**","Inferior (mostly)","Inferior"),
+                   lower=c(-10,-4,-2,2,4,12),
+                   upper=c(-1,5,12,8,12,20))
+ex.df$case <- factor(ex.df$case, levels = ex.df$case[order(ex.df$lower)])
+
+colors = c("blue","blue","red","blue","red","red")
+ggplot(ex.df) + 
+  geom_text(aes(x=lower,y=case,label=case), nudge_x=1, nudge_y=0.25) +
+  geom_segment(aes(x=lower,xend=upper,y=case,yend=case, color=case)) +
+  scale_color_manual(values=colors)+
+#  geom_point(aes(x=(high+low)/2,y=case)) +
+  geom_segment(aes(x=0,xend=0,y=0,yend=7), linetype="dotted") +
+  geom_segment(aes(x=10,xend=10,y=0,yend=7), linetype="dotted", color="forestgreen") +
+  ggtitle("Experiment outcome cases with threshold") + 
+  ylab("")+
+  xlab("Difference in prevalence: Modernized - Traditional") +
+  scale_x_continuous(breaks=c(0,10),labels=c("0", "T")) +
+  theme_classic() +
+  theme(axis.text.y = element_blank(), axis.ticks.y=element_blank(), legend.position = "")
+
+```
+
+
+The confidence intervals of Outcomes A, D, E and F do not overlap zero, so they are each "statistically different" from zero. However, E is "closer to zero" than F, and D is closer than E. Outcomes C and E also cross $T$, so they are not statitically different from $T$. If the threshold $T$ is a value that is "not meaningfully different from zero", it can be used as a measure of statistical equivalence. We'll call outcomes that lie entirely to the left of $T$ to be "non-inferior" and those that cross $T$ or lie entirely to the right of $T$ to be "inferior". 
+
+*How do we select the threshold* $T$?
+
+
+```{r echo=FALSE}
+e1$plot + 
+  scale_color_manual(
+      values=c("A"="blue","B"="blue","D"="blue","C"="red","E"="red","F"="red")) + 
+  theme(legend.position = "")
+
+p1=p0+1/48
+count1=sum(e1$dfp$mean < (qnorm(0.975)+qnorm(0.8))/sqrt(336)*(sqrt(p0*(1-p0) + p1*(1-p1))))
+```
+If the true difference is 1 sample per plant, then setting the threshold equal to 1.5 samples per plant leads to `r paste0(count1/NN,"%")` of the mean values lying to the left of $T$. However, for many of these outcomes, the upper bound of the confidence interval lies to the right of $T$ so those outcomes are not truly "non-inferior".
+
+To make sure at least 80% of the experimental outcomes have confidence intervals entirely in the "non-inferior" zone, the threshold must be set to 2.54.
+
+```{r echo=FALSE}
+thr = 2.54/48
+e2 = ExOutcomes(diff,p0,thr,np,ns,Nsim=NN)
+e2$plot + 
+  scale_color_manual(
+      values=c("A"="blue","B"="blue","D"="blue","C"="red","E"="red","F"="red")) +  geom_segment(aes(x=thr*48,xend=thr*48,y=0,yend=1), linetype="dashed", color="forestgreen", size=1) + 
+  theme(legend.position = "")
+
+```
+
+
+```{r echo=FALSE}
+thr = 2/48
+e3 = ExOutcomes(diff,p0,thr,np,96,Nsim=NN)
+e3$plot + 
+  scale_color_manual(
+      values=c("A"="blue","B"="blue","D"="blue","C"="red","E"="red","F"="red")) +  geom_segment(aes(x=thr*48,xend=thr*48,y=0,yend=1), linetype="dashed", color="forestgreen", size=1) + 
+  theme(legend.position = "")
+```
+
+By increasing the number of samples per plant to 96 samples per plant, we can reduce the threshold to 2 positives per plant. This level is sufficient to ensure 80% of all outcomes with a true difference of 1 positive sample have confidence intervals that lie entirely in the "non-inferior" zone.
+
+*How can the study design be changed to increase power?*
+
+1. Increase number of samples (either by enrolling more plants or by taking a greater number of samples at each plant)
+2. Increase the minimum detectable difference; that is, a value below which the systems would be deemed "equivalent."
+3. Reduce the confidence band.
+
+*Some equations*
+
+$Z_{1-\beta} = d \sqrt{n}*\sqrt{\sigma^2/2} - Z_{1-\alpha/2}$
+
+$Z_{1-\beta}$ = `r sqrt(336/2)*sqrt(1/48*(1-1/48))/48 - qnorm(0.975)`
+
+$\text{Power}$ = $1 - \beta$ = `r pnorm(sqrt(336/2)*sqrt(1/48*(1-1/48))/48) - qnorm(0.975)`
+
