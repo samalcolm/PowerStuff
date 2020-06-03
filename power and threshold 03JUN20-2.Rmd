@@ -8,6 +8,7 @@ output:
 ---
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 library(ggplot2)
+library(ggthemes)
 library(dplyr)
 knitr::opts_chunk$set(fig.width=4.8, fig.height=3,
                       echo=FALSE, warning=FALSE, message=FALSE)
