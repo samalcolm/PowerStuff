@@ -392,11 +392,5 @@ By increasing the number of samples per plant to 96 samples per plant, we can re
 2. Increase the minimum detectable difference; that is, a value below which the systems would be deemed "equivalent."
 3. Reduce the confidence band.
 
-*Some equations*
 
-$Z_{1-\beta} = d \sqrt{n}*\sqrt{\sigma^2/2} - Z_{1-\alpha/2}$
-
-$Z_{1-\beta}$ = `r sqrt(336/2)*sqrt(1/48*(1-1/48))/48 - qnorm(0.975)`
-
-$\text{Power}$ = $1 - \beta$ = `r pnorm(sqrt(336/2)*sqrt(1/48*(1-1/48))/48) - qnorm(0.975)`
 
