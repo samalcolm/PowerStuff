@@ -124,7 +124,7 @@ ExOutcomes = function(diff, p0, thr, nplants, samples_per_plant, Nsim=1e5, alpha
   c95pos = approx(dat$x, dat$y, xout=c95)$y%%1
   mdd = (c95+sqrt(pbar*(1-pbar))*sqrt(2/total_samples)*qnorm(1-beta))*sf
 
-# These measures are equivalent to Power. they are not equal due to discrete x-axis
+# These measures are equivalent to Power. they are not equal to each other, or to the theoretical power, due to the discreteness of the x-axis
   meas0 = sum(dfp$lower >= 0)/Nsim
   meas1 = sum(dfp$mean >= c95)/Nsim
  # Theoretical power value
