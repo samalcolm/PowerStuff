@@ -88,7 +88,7 @@ ExOutcomes = function(diff, p0, thr, nplants, samples_per_plant, Nsim=1e5, alpha
 #    arrange(low, -mean) %>%
     arrange(mean) %>%
     mutate(run=row_number()/Nsim)
-  
+# Assign case to each simulated experiment outcome
   dfp$case = "All zero"
   dfp$case[dfp$upper < 0] = "A"
   dfp$case[dfp$upper > 0   & dfp$upper < thr & dfp$lower < 0] = "B"
@@ -97,12 +97,14 @@ ExOutcomes = function(diff, p0, thr, nplants, samples_per_plant, Nsim=1e5, alpha
   dfp$case[dfp$upper > thr & dfp$lower < thr & dfp$lower > 0] = "E"
   dfp$case[dfp$lower > thr] = "F"
   dfp$case = ordered(dfp$case,c("All zero","A","B","C","D","E","F"))
-  
+
+# Simplified cases
   dfp$case0 = "All zero"
   dfp$case0[dfp$upper < 0] = "Reject"
   dfp$case0[dfp$upper > 0 & dfp$lower < 0] = "Do not reject"
   dfp$case0[dfp$lower > 0] = "Reject"
 
+# Case summaries; how many of each case
   cases = dfp %>% 
     group_by(case) %>% 
     summarize(t=n()/Nsim) %>% 
@@ -112,21 +114,22 @@ ExOutcomes = function(diff, p0, thr, nplants, samples_per_plant, Nsim=1e5, alpha
     group_by(case0) %>% 
     summarize(t=n()/Nsim) %>% 
     as.data.frame()
-  
+
+# Find the minimal detectable difference for given set of parameters
   pbar = uniroot(function(pbar) 
    2*pbar - 2*p0 -(qnorm(1-alpha/2)+qnorm(1-beta))*sqrt(1/total_samples)*sqrt(pbar*(1-pbar)),  c(0,1))$root
   
   c95 = sqrt(2*p0*(1-p0))/sqrt(total_samples)*qnorm(1-alpha/2)
   dat = data.frame(x=seq(1/total_samples,1,length.out=total_samples),y=seq(0,total_samples-1))
   c95pos = approx(dat$x, dat$y, xout=c95)$y%%1
-  
   mdd = (c95+sqrt(pbar*(1-pbar))*sqrt(2/total_samples)*qnorm(1-beta))*sf
-  
+
+# These measures are equivalent to Power. they are not equal due to discrete x-axis
   meas0 = sum(dfp$lower >= 0)/Nsim
   meas1 = sum(dfp$mean >= c95)/Nsim
+ # Theoretical power value
   power = power.prop.test(n=total_samples, p1=p0, p2=p0+diff)$power
-  p.p.test = power.prop.test(n=total_samples, p1=p0, power=0.8)
-#  mdd = (p.p.test$p2 - p.p.test$p1)*sf
+
   colors = c("green","blue","red")
   
   select_rows = seq(from=1, to=Nsim, length.out=50)
@@ -168,18 +171,24 @@ ExOutcomes = function(diff, p0, thr, nplants, samples_per_plant, Nsim=1e5, alpha
 
 ```{r echo=FALSE}
 # simulation parameters
+# base prevalence
 p0 = 0.5/48
+# threshold; not important for early stuff
 th = 1.5/48
+# number of plants and number of samples per plant
 np = 7
 ns = 48
+# number of simulations
 NN = 1e4
+# hypothsized difference in means between systems
 diff = 0
 ```
 
 ```{r echo=FALSE}
 e = ExOutcomes(diff,p0,th,np,ns,Nsim=NN)
+# show plot of outcomes
 e$p2
-#e$cases
+# show value of cases (over all simulations, not just what is shown in plot)
 e$cases0
 nodiff = e$cases0[e$cases0$case0=="Do not reject","t"]
 reject = e$cases0[e$cases0$case0=="Reject","t"]
@@ -195,13 +204,11 @@ What happens to the range of possible outcomes if there truly *is* a difference?
 diff = 1/48
 NN = 1e4
 e1 = ExOutcomes(diff,p0,th,np,ns,Nsim=NN)
+# change colors to reflect change in meaning
 e1$p2 +    scale_color_manual(
       values=c("Reject"="blue","Do not reject"="red"))
-
-#e1$cases
 e1$cases0
 nodiff = sum(e1$cases0[e1$cases0$case == c("Do not reject"),"t"] )
-
 ```
 
 The experimental outcomes are drawn from a system where the treatment group prevalence is 1.5 positive samples per plant per year, for an expected difference of 1 positive per plant.
@@ -220,7 +227,6 @@ Fortunately, we don't have to resort to simulation to calculate the power of a s
 
 Let's look at the problem another way. By looking at the distributions of means of the two possible outcomes (a <span style="color: blue;">mean difference of zero</span>, and a <span style="color: red;">mean difference of 1 positive sample per plant</span>).
 
-We can see that 
 
 ```{r echo=FALSE}
 
@@ -261,13 +267,13 @@ plt = ggplot(dat1, aes(x = x*48)) +
   xlim(-2,4) +
   labs(color="") +
     theme_classic()
+plt
 
 # interpolated power value
-vol <- lapply(data.frame(cdf1=0.975), function(l) approx(dat$cdf1, dat$x, xout=l))
-vol <- vol$cdf1$y*48
-vol2 <- lapply(data.frame(x=vol/48), function(l) approx(dat$x, dat$cdf2, xout=l))
-power=1-vol2$x$y
-plt
+pv <- lapply(data.frame(cdf1=0.975), function(l) approx(dat$cdf1, dat$x, xout=l))
+pv <- pv$cdf1$y*48
+pv2 <- lapply(data.frame(x=pv/48), function(l) approx(dat$x, dat$cdf2, xout=l))
+power=1-pv2$x$y
 
 ```
 
@@ -292,13 +298,13 @@ plt2
 
 The area under the red distribution to the right of the dotted line is the power of the study.
 
+## Non-inferiority
 
 Making a claim that "no difference" is strictly a difference equal to zero is a tough order to fill. If one compares samples from two groups randomly chosen from traditional establishments with similar characteristics, it reasonable to assume, and indeed likely, that the observed difference will not be precisely zero even though the systems are, by definition, equivalent. The range of outcomes (mean values) of that experiment is the blue distribution above. 
 
 Here's our single experimental outcome again:
 
 ```{r echo=FALSE}
-#ggplot(ex.df[ex.df$case %in% c("No Difference"),]) + 
 ggplot(data.frame(lower=-1,upper=5)) +
   geom_segment(aes(x=lower,xend=upper,y=1,yend=1),
                arrow=arrow(angle = 90, length = unit(0.1, "inches"),
@@ -328,7 +334,7 @@ ex.df = data.frame( case=c("A","B","C","D","E","F") ,                 labels=c("
                    upper=c(-1,5,12,8,12,20))
 ex.df$case <- factor(ex.df$case, levels = ex.df$case[order(ex.df$lower)])
 
-colors = c("blue","blue","red","blue","red","red")
+colors = c("A"="blue","B"="blue","C"="red","D"="blue","E"="red","F"="red")
 ggplot(ex.df) + 
   geom_text(aes(x=lower,y=case,label=case), nudge_x=1, nudge_y=0.25) +
   geom_segment(aes(x=lower,xend=upper,y=case,yend=case, color=case)) +
