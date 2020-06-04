@@ -146,7 +146,7 @@ ExOutcomes = function(diff, p0, thr, nplants, samples_per_plant, Nsim=1e5, alpha
     geom_point(aes(mean*sf, run), color="black") +
     geom_segment(aes(x=lower*sf,xend=upper*sf,y=run,yend=run, color=case0), alpha=0.5)  +
     scale_color_manual(
-      values=c("Reject"="red","Do not reject"="blue")) +
+      values=c("Reject"="red","Do not reject"="blue","All zero"="black")) +
     geom_segment(aes(x=0,xend=0,y=0,yend=1), linetype="dashed", color="black", size=1) +
       ggtitle("Subset of simulated Experiment outcomes") +
     ylab("Quantile") + xlab("Positive samples per establishment") +
@@ -359,15 +359,17 @@ The confidence intervals of Outcomes A, D, E and F do not overlap zero, so they 
 
 
 ```{r echo=FALSE}
+thr=1.5/48
 e1$plot + 
   scale_color_manual(
-      values=c("A"="blue","B"="blue","D"="blue","C"="red","E"="red","F"="red")) + 
+      values=c("A"="blue","B"="blue","D"="blue","C"="red","E"="red","F"="red")) +  geom_segment(aes(x=thr*48,xend=thr*48,y=0,yend=1), linetype="dashed", color="forestgreen", size=1)  + 
   theme(legend.position = "")
 
 p1=p0+1/48
 count1=sum(e1$dfp$mean < (qnorm(0.975)+qnorm(0.8))/sqrt(336)*(sqrt(p0*(1-p0) + p1*(1-p1))))
 ```
-If the true difference is 1 sample per plant, then setting the threshold equal to 1.5 samples per plant leads to `r paste0(count1/NN,"%")` of the mean values lying to the left of $T$. However, for many of these outcomes, the upper bound of the confidence interval lies to the right of $T$ so those outcomes are not truly "non-inferior".
+
+If the true difference is 1 sample per plant, then setting the threshold equal to 1.5 samples per plant leads to `r paste0(100*count1/NN,"%")` of the mean values lying to the left of $T$. However, for many of these outcomes, the upper bound of the confidence interval lies to the right of $T$ so those outcomes are not truly "non-inferior".
 
 To make sure at least 80% of the experimental outcomes have confidence intervals entirely in the "non-inferior" zone, the threshold must be set to 2.54.
 
